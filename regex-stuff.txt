@@ -1,0 +1,9 @@
+Console\.Beep\(([0-9]+), ([0-9]+)\);
+:beep frequency=([0-9]+) length=([0-9]+)ms;
+
+:beep frequency=$1 length=$2ms; :delay $2ms;
+
+
+Thread\.Sleep\(([0-9]+)\);
+
+:delay $1ms;
