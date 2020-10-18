@@ -2,10 +2,9 @@ name := "midiTik"
 
 version := "0.0.0"
 
-scalaVersion := "2.12.3"
+scalaVersion := "2.13.3"
 
-externalResolvers := Seq(
-  Resolver.defaultLocal,
-  "artifactory-maven" at "http://lolhens.no-ip.org/artifactory/maven-public/",
-  Resolver.url("artifactory-ivy", url("http://lolhens.no-ip.org/artifactory/ivy-public/"))(Resolver.ivyStylePatterns)
+libraryDependencies ++= Seq(
+  "net.java.dev.jna" % "jna" % "5.6.0",
+  "net.java.dev.jna" % "jna-platform" % "5.6.0"
 )

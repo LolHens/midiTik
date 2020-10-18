@@ -2,67 +2,87 @@ import javax.sound.midi.{MidiSystem, ShortMessage}
 
 object Main {
 
-  case class Note(key: Int, time: Long, velocity: Int)
+  case class Note(key: Int, velocity: Int) {
+    val freq: Double = frequency(key)
+    val freqInt: Int = Math.round(freq).toInt
+
+    def isAudible: Boolean = freqInt >= 37 && freqInt <= 32_767
+  }
 
   def main(args: Array[String]): Unit = {
-    val sequence = MidiSystem.getSequence(getClass.getResourceAsStream("Cantina.mid"))
+    val sequence = MidiSystem.getSequence(getClass.getClassLoader.getResourceAsStream("Jurassic_Park_Theme.mid"))
 
-    val offsetKeys = sequence.getTracks.toList
+    println(sequence.getTracks.length + " Tracks")
+
+    val keys = sequence.getTracks.zipWithIndex.filter(e => e._2 == 2 || e._2 == 3).map(_._1).toList
       .flatMap(e => (0 until e.size()).map(e.get).toList)
       .map(e => e.getTick -> e.getMessage)
-      .collect {
-        case (tick, shortMessage: ShortMessage) =>
-          shortMessage.getCommand match {
-            case ShortMessage.NOTE_ON =>
-              Some(Note(shortMessage.getData1, tick, shortMessage.getData2))
+      .foldLeft(List.empty[(Long, List[Note])]) {
+        case (track, (tick, shortMessage: ShortMessage)) =>
+          val command = shortMessage.getCommand
+          val key = shortMessage.getData1
+          val velocity = shortMessage.getData2
 
-            case _ => None
+          val (notes, trackTail) = track.headOption match {
+            case Some((`tick`, notes)) => (notes, track.tail)
+            case Some((_, notes)) => (notes, track)
+            case None => (List.empty, track)
           }
+
+          (command, velocity) match {
+            case (ShortMessage.NOTE_OFF, _) | (ShortMessage.NOTE_ON, 0) =>
+              (tick, notes.filterNot(_.key == key)) +: trackTail
+
+            case (ShortMessage.NOTE_ON, velocity) =>
+              (tick, Note(key, velocity) +: notes.filterNot(_.key == key)) +: trackTail
+
+            case _ => track
+          }
+
+        case (notes, _) => notes
       }
-      .flatMap(e => e.toList)
-      .sortBy(_.time)
+      .reverse
+      .map(e => (e._1, e._2.filter(_.isAudible)))
 
-    val firstTime: Long = offsetKeys.headOption.map(_.time).getOrElse(0)
+    val highestMergedNotes: List[(Long, Option[Note])] = keys.map {
+      case (tick, notes) => (tick, notes.maxByOption(_.key))
+    }.foldLeft(List.empty[(Long, Option[Note])]) {
+      case (track, (tick, noteOption)) =>
+        if (track.headOption.exists(_._2 == noteOption))
+          track
+        else
+          (tick, noteOption) +: track
+    }.reverse
 
-    val keys = offsetKeys.map(e => e.copy(time = e.time - firstTime))
+    val ticksToMillis: Double = (sequence.getTickLength.toDouble / sequence.getMicrosecondLength) * 1000
 
-    val ticksToMillis: Double = sequence.getTickLength.toDouble / sequence.getMicrosecondLength
+    val noteLengths = highestMergedNotes.foldLeft[((Long, Option[Note]), List[(Option[Note], Int)])](((0, None), List.empty)) {
+      case (((lastTick, lastNoteOption), track), (tick, noteOption)) =>
+        val tickDelta = tick - lastTick
+        val duration = (tickDelta / ticksToMillis).toInt
+        ((tick, noteOption), (lastNoteOption, duration) +: track)
+    }._2.reverse
+      .dropWhile(_._1.isEmpty)
 
-    println(ticksToMillis)
+    val commands =
+      noteLengths.map {
+        case (None, duration) =>
+          s"${if (duration >= 2000) "\n" else ""}:delay ${duration}ms"
 
-    /*val keys = keysOnOff
-      .foldLeft((Map.empty[Int, Note], List.empty[Note])) { (last, e) =>
-        last match {
-          case (pressedKeys, keys) => if (e._2) {
-            if (pressedKeys.contains(e._1.key))
-              (pressedKeys, keys)
-            else
-              (pressedKeys + (e._1.key -> e._1), keys)
-          } else {
-            val oldKey = pressedKeys.get(e._1.key)
-            if (oldKey.isDefined) {
-              (pressedKeys - e._1.key, keys :+ e._1.copy(time = e._1.time - oldKey.get.time))
-            } else
-              (pressedKeys, keys)
-          }
-        }
-      }*/
+        case (Some(note), duration) =>
+          s":beep frequency=${note.freqInt} length=${duration}ms"
+      }
+        .mkString("; ")
 
-    println(keys)
+    println(commands)
 
-    val firstNotePerTick = keys.groupBy(_.time).toList.sortBy(_._1).flatMap(_._2.headOption)
+    noteLengths.foreach {
+      case (None, duration) =>
+        Thread.sleep(if (duration > 2000) 2000 else duration)
 
-    var lastTime: Long = 0
-    val beeps = firstNotePerTick.map{e =>
-      val freq = frequency(e.key).toInt
-      val newTime = e.time - lastTime
-      lastTime = e.time
-      val length: Int = (newTime * 10).toInt
-      s":beep frequency=$freq length=${length}ms; :delay ${length}ms;"}
-
-    println(firstNotePerTick)
-
-    println(beeps.mkString("\\n"))
+      case (Some(note), duration) =>
+        Kernel32().Beep(note.freqInt, duration)
+    }
   }
 
   val frequency: Map[Int, Double] = Map[Int, Double](
