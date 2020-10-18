@@ -10,11 +10,11 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    val sequence = MidiSystem.getSequence(getClass.getClassLoader.getResourceAsStream("Jurassic_Park_Theme.mid"))
+    val sequence = MidiSystem.getSequence(getClass.getClassLoader.getResourceAsStream("song.mid"))
 
     println(sequence.getTracks.length + " Tracks")
 
-    val keys = sequence.getTracks.zipWithIndex.filter(e => e._2 == 2 || e._2 == 3).map(_._1).toList
+    val keys = sequence.getTracks.zipWithIndex.filter(e => e._2 == 3).map(_._1).toList
       .flatMap(e => (0 until e.size()).map(e.get).toList)
       .map(e => e.getTick -> e.getMessage)
       .foldLeft(List.empty[(Long, List[Note])]) {
@@ -63,6 +63,10 @@ object Main {
         ((tick, noteOption), (lastNoteOption, duration) +: track)
     }._2.reverse
       .dropWhile(_._1.isEmpty)
+      .map {
+        case (None, duration) if duration > 2000 => (None, 2000)
+        case e => e
+      }
 
     val commands =
       noteLengths.map {
@@ -78,7 +82,7 @@ object Main {
 
     noteLengths.foreach {
       case (None, duration) =>
-        Thread.sleep(if (duration > 2000) 2000 else duration)
+        Thread.sleep(duration)
 
       case (Some(note), duration) =>
         Kernel32().Beep(note.freqInt, duration)
