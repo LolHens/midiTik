@@ -2,6 +2,52 @@ import javax.sound.midi.{MidiSystem, ShortMessage}
 
 object Main {
 
+  trait NoteExporter {
+    def sleep(duration: Int): String
+
+    def note(note: Note, duration: Int): String
+
+    def sep: String
+  }
+
+  object NoteExporter {
+    object Mikrotik extends NoteExporter {
+      override def sleep(duration: Int): String =
+        s"${if (duration >= 2000) "\n" else ""}:delay ${duration}ms"
+
+      override def note(note: Note, duration: Int): String =
+        s":beep frequency=${note.freqInt} length=${duration}ms"
+
+      override def sep: String = "; "
+    }
+
+    object C extends NoteExporter {
+      override def sleep(duration: Int): String =
+        s"delay(${duration / 2});"
+
+      override def note(note: Note, duration: Int): String =
+        s"analogWriteFreq(${note.freqInt});analogWrite(summer,512);delay(${duration / 2});analogWrite(summer,0);"
+
+      override def sep: String = "\n"
+    }
+
+    object Beep extends NoteExporter {
+      override def sleep(duration: Int): String = {
+        Thread.sleep(duration)
+        ""
+      }
+
+      override def note(note: Note, duration: Int): String = {
+        Kernel32().Beep(note.freqInt, duration)
+        ""
+      }
+
+      override def sep: String = ""
+    }
+
+    val exporter: NoteExporter = Mikrotik
+  }
+
   case class Note(key: Int, velocity: Int) {
     val freq: Double = frequency(key)
     val freqInt: Int = Math.round(freq).toInt
@@ -10,11 +56,11 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    val sequence = MidiSystem.getSequence(getClass.getClassLoader.getResourceAsStream("song.mid"))
+    val sequence = MidiSystem.getSequence(getClass.getClassLoader.getResourceAsStream("cantina-arp2.mid"))
 
     println(sequence.getTracks.length + " Tracks")
 
-    val keys = sequence.getTracks.zipWithIndex.filter(e => e._2 == 3).map(_._1).toList
+    val keys = sequence.getTracks.zipWithIndex.filter(e => e._2 == 2).map(_._1).toList
       .flatMap(e => (0 until e.size()).map(e.get).toList)
       .map(e => e.getTick -> e.getMessage)
       .foldLeft(List.empty[(Long, List[Note])]) {
@@ -71,22 +117,14 @@ object Main {
     val commands =
       noteLengths.map {
         case (None, duration) =>
-          s"${if (duration >= 2000) "\n" else ""}:delay ${duration}ms"
+          NoteExporter.exporter.sleep(duration)
 
         case (Some(note), duration) =>
-          s":beep frequency=${note.freqInt} length=${duration}ms"
+          NoteExporter.exporter.note(note, duration)
       }
-        .mkString("; ")
+        .mkString(NoteExporter.exporter.sep)
 
     println(commands)
-
-    noteLengths.foreach {
-      case (None, duration) =>
-        Thread.sleep(duration)
-
-      case (Some(note), duration) =>
-        Kernel32().Beep(note.freqInt, duration)
-    }
   }
 
   val frequency: Map[Int, Double] = Map[Int, Double](
